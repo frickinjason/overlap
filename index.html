@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Overlap — find meeting hours across time zones</title>
+<meta name="description" content="Free, private, no-signup tool to find working-hour overlap across time zones. Shareable links.">
+<style>
+  :root{--bg:#0f1115;--card:#181b22;--fg:#e8eaf0;--mut:#9aa3b2;--ok:#2fbf71;--some:#d9a441;--no:#2a2f3a;--acc:#6aa9ff}
+  @media (prefers-color-scheme: light){:root{--bg:#f6f7fb;--card:#fff;--fg:#1b1f2a;--mut:#5b6474;--no:#e7e9ef}}
+  *{box-sizing:border-box}body{margin:0;font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--fg)}
+  main{max-width:980px;margin:0 auto;padding:24px 16px 64px}
+  h1{margin:0 0 4px;font-size:26px}p.sub{margin:0 0 20px;color:var(--mut)}
+  .card{background:var(--card);border-radius:12px;padding:16px;margin-bottom:16px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  input,select,button{font:inherit;padding:7px 10px;border-radius:8px;border:1px solid #3a4150;background:transparent;color:var(--fg)}
+  button{cursor:pointer;background:var(--acc);border-color:var(--acc);color:#fff}
+  button.ghost{background:transparent;color:var(--fg);border-color:#3a4150}
+  table{border-collapse:collapse;width:100%;font-size:12px}
+  td,th{padding:0;text-align:center}
+  th.zone{text-align:left;padding:4px 8px 4px 0;white-space:nowrap;font-weight:600;font-size:13px}
+  td.h{height:30px;min-width:28px;border:1px solid var(--bg)}
+  td.ok{background:var(--ok);color:#06210f}td.some{background:var(--some);color:#2a1d00}td.no{background:var(--no);color:var(--mut)}
+  td.best{outline:2px solid var(--acc);outline-offset:-2px}
+  .x{background:none;border:none;color:var(--mut);padding:0 6px;cursor:pointer}
+  .scroll{overflow-x:auto}
+  .summary{margin-top:12px;font-size:15px}
+  footer{color:var(--mut);font-size:13px;margin-top:28px}
+  a{color:var(--acc)}
+  .tip{display:inline-block;margin-top:6px;padding:8px 14px;border-radius:8px;background:var(--ok);color:#06210f;text-decoration:none;font-weight:600}
+</style>
+</head>
+<body>
+<main>
+  <h1>Overlap</h1>
+  <p class="sub">Find the hours when everyone on a distributed team is actually working. Free, no signup, runs entirely in your browser.</p>
+
+  <div class="card">
+    <div class="row">
+      <input id="zone" list="zones" placeholder="Add a time zone (e.g. Europe/Berlin)" style="flex:1;min-width:240px">
+      <datalist id="zones"></datalist>
+      <label>Work hours <input id="ws" type="number" min="0" max="23" value="9" style="width:64px">–<input id="we" type="number" min="1" max="24" value="17" style="width:64px"></label>
+      <button id="add">Add</button>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <label>Date <input id="date" type="date"></label>
+      <label>Show hours in <select id="ref"></select></label>
+      <button class="ghost" id="share">Copy share link</button>
+      <span id="copied" style="color:var(--ok)"></span>
+    </div>
+  </div>
+
+  <div class="card scroll"><table id="grid"></table><div class="summary" id="summary"></div></div>
+
+  <footer>
+    Green = inside everyone's work hours. Amber = inside some people's. Handles DST automatically using your browser's time zone database.<br>
+    Built by an AI agent (Claude), published by its human operator. If this saved you a scheduling headache:
+    <br><a class="tip" id="tiplink" href="PAY_LINK_HERE" target="_blank" rel="noopener">Tip $1+ ☕</a>
+  </footer>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const allZones=(Intl.supportedValuesOf?Intl.supportedValuesOf('timeZone'):['UTC','America/New_York','America/Los_Angeles','Europe/London','Europe/Berlin','Asia/Kolkata','Asia/Tokyo','Australia/Sydney']);
+$('zones').innerHTML=allZones.map(z=>`<option value="${z}">`).join('');
+const local=Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC';
+let people=[];
+const valid=z=>{try{new Intl.DateTimeFormat('en-US',{timeZone:z});return true}catch{return false}};
+function load(){
+  const p=new URLSearchParams(location.hash.slice(1));
+  if(p.get('z')){people=p.get('z').split(',').map(s=>{const[z,a,b]=s.split('~');return{z,s:+a,e:+b}}).filter(x=>valid(x.z))}
+  if(!people.length)people=[{z:local,s:9,e:17}];
+  $('date').value=p.get('d')||new Date().toISOString().slice(0,10);
+}
+function save(){location.replace('#z='+people.map(p=>`${p.z}~${p.s}~${p.e}`).join(',')+'&d='+$('date').value)}
+function hourIn(zone,date){return +new Intl.DateTimeFormat('en-US',{timeZone:zone,hour:'numeric',hourCycle:'h23'}).format(date)}
+function lbl(zone,date){const p=new Intl.DateTimeFormat('en-US',{timeZone:zone,hour:'numeric',minute:'2-digit',hourCycle:'h23'}).formatToParts(date).reduce((a,x)=>(a[x.type]=x.value,a),{});return p.minute==='00'?String(+p.hour):`${+p.hour}:${p.minute}`}
+function offsetMin(zone,date){const p=new Intl.DateTimeFormat('en-US',{timeZone:zone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(date).reduce((a,x)=>(a[x.type]=x.value,a),{});return(Date.UTC(p.year,p.month-1,p.day,p.hour,p.minute)-date.getTime())/6e4}
+function render(){
+  const refSel=$('ref');const cur=refSel.value;
+  refSel.innerHTML=people.map(p=>`<option>${p.z}</option>`).join('');
+  refSel.value=people.some(p=>p.z===cur)?cur:people[0].z;
+  const ref=refSel.value;
+  const [y,m,d]=$('date').value.split('-').map(Number);
+  const startUTC=Date.UTC(y,m-1,d)-offsetMin(ref,new Date(Date.UTC(y,m-1,d,12)))*6e4;
+  const hours=[...Array(24)].map((_,i)=>new Date(startUTC+i*36e5));
+  const inWork=(p,t)=>{const h=hourIn(p.z,t);return p.s<=p.e?(h>=p.s&&h<p.e):(h>=p.s||h<p.e)};
+  const counts=hours.map(t=>people.filter(p=>inWork(p,t)).length);
+  let html='<tr><th class="zone">'+ref.replace(/_/g,' ')+' →</th>'+hours.map(t=>`<th>${hourIn(ref,t)}</th>`).join('')+'</tr>';
+  people.forEach((p,i)=>{
+    html+=`<tr><th class="zone"><button class="x" data-i="${i}" title="remove">×</button>${p.z.replace(/_/g,' ')} <span style="color:var(--mut);font-weight:400">${p.s}–${p.e}</span></th>`+
+      hours.map((t,j)=>{const w=inWork(p,t);const c=counts[j]===people.length?'ok':(w?'some':'no');return`<td class="h ${c}${counts[j]===people.length?' best':''}">${lbl(p.z,t)}</td>`}).join('')+'</tr>';
+  });
+  $('grid').innerHTML=html;
+  const all=hours.filter((_,j)=>counts[j]===people.length);
+  const max=Math.max(...counts);
+  $('summary').innerHTML=people.length<2?'Add at least one more time zone.':
+    all.length?`<b>${all.length} hour${all.length>1?'s':''} of full overlap</b>: ${all.map(t=>hourIn(ref,t)+':00').join(', ')} (${ref.replace(/_/g,' ')}).`:
+    `No hour where everyone is working. Best is ${max}/${people.length} people, highlighted in amber.`;
+  document.querySelectorAll('.x').forEach(b=>b.onclick=()=>{people.splice(+b.dataset.i,1);if(!people.length)people=[{z:local,s:9,e:17}];save();render()});
+}
+$('add').onclick=()=>{const z=$('zone').value.trim();if(!z||!valid(z)){$('zone').style.borderColor='#e55';return}
+  $('zone').style.borderColor='';people.push({z,s:+$('ws').value,e:+$('we').value});$('zone').value='';save();render()};
+$('zone').addEventListener('keydown',e=>{if(e.key==='Enter')$('add').click()});
+$('date').onchange=()=>{save();render()};$('ref').onchange=render;
+$('share').onclick=async()=>{save();try{await navigator.clipboard.writeText(location.href);$('copied').textContent='Copied!'}catch{$('copied').textContent=location.href}setTimeout(()=>$('copied').textContent='',2500)};
+load();render();
+if($('tiplink').getAttribute('href')==='PAY_LINK_HERE')$('tiplink').style.display='none';
+</script>
+</body>
+</html>
